@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0e1726" />
+  <title>Sprint-Kraftanalyse</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Sprint-Kraftanalyse</h1>
+    <span class="sub">Inverse Dynamik aus Video · MediaPipe</span>
+  </header>
+
+  <main>
+    <!-- ── Setup ─────────────────────────────────────────────── -->
+    <section id="setupCard" class="card">
+      <h2>1 · Video & Daten</h2>
+
+      <label class="filebtn">
+        <input type="file" id="fileInput" accept="video/*" />
+        <span class="filebtn-inner">📁 Video aus Galerie wählen</span>
+      </label>
+      <p class="filename" id="fileName">Noch kein Video gewählt</p>
+
+      <div class="grid3">
+        <div class="field">
+          <label for="mass">Körpermasse (kg)</label>
+          <input type="number" id="mass" value="78" step="0.5" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="height">Körpergröße (m)</label>
+          <input type="number" id="height" value="1.80" step="0.01" inputmode="decimal" />
+        </div>
+        <div class="field">
+          <label for="cutoff">Filter (Hz) <small>6–10</small></label>
+          <input type="number" id="cutoff" value="8" step="0.5" inputmode="decimal" />
+        </div>
+      </div>
+
+      <label class="checkrow">
+        <input type="checkbox" id="kraftChk" checked />
+        <span>Kraftberechnung durchführen</span>
+      </label>
+      <p class="checkhint" id="kraftHint"></p>
+
+      <button id="startBtn" class="primary" disabled>Analyse starten</button>
+
+      <div id="progressWrap" class="progress-wrap hidden">
+        <div class="progress-track"><div id="progressBar" class="progress-bar"></div></div>
+        <p id="progressTxt" class="progress-txt"></p>
+      </div>
+
+      <div id="errorBox" class="errorbox hidden"></div>
+
+      <details class="hint">
+        <summary>Tipps fürs Filmen (wichtig für Genauigkeit)</summary>
+        <ul>
+          <li>Kamera <b>statisch & seitlich</b> (90° zur Laufrichtung)</li>
+          <li>Möglichst <b>Zeitlupe</b> (120 fps oder mehr)</li>
+          <li>Ganzer Körper durchgehend im Bild</li>
+          <li>Gute, gleichmäßige Beleuchtung</li>
+        </ul>
+      </details>
+    </section>
+
+    <!-- ── Ergebnisse ────────────────────────────────────────── -->
+    <section id="results" class="hidden">
+      <div class="card">
+        <h2>2 · Video mit Overlay</h2>
+        <div class="video-wrap">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="seekrow">
+          <input type="range" id="seekBar" min="0" max="1000" value="0" step="1" aria-label="Video-Position" />
+          <span class="timelbl" id="timeLbl">0.00 / 0.00 s</span>
+        </div>
+
+        <div class="controls">
+          <button id="stepBack" title="Bild zurück">⏮</button>
+          <button id="playBtn" class="primary small">▶ / ⏸</button>
+          <button id="stepFwd" title="Bild vor">⏭</button>
+          <select id="speedSel" title="Tempo">
+            <option value="0.25">0.25×</option>
+            <option value="0.5">0.5×</option>
+            <option value="1" selected>1×</option>
+            <option value="1.5">1.5×</option>
+            <option value="2">2×</option>
+          </select>
+          <button id="muteBtn" title="Ton an/aus">🔊 Ton</button>
+          <button id="toggleModus">Ansicht: Alles</button>
+          <button id="toggleWinkel">Winkel: an</button>
+          <button id="toggleReakt">Reaktion: aus</button>
+        </div>
+
+        <!-- Reaktionszeit-Modus -->
+        <div id="reaktBox" class="reakt hidden">
+          <div class="reakt-info">
+            <div><span>Start</span><b id="rStart">–</b></div>
+            <div><span>Ende</span><b id="rEnde">–</b></div>
+            <div><span>Seit Start</span><b id="rSeit">–</b></div>
+            <div class="rz"><span>Reaktionszeit</span><b id="rReakt">–</b></div>
+          </div>
+          <canvas id="waveCanvas" class="wave"></canvas>
+          <div class="reakt-btns">
+            <button id="rSetStart">Start = hier</button>
+            <button id="rSetEnde">Ende = hier</button>
+            <button id="rClear" class="ghost">Löschen</button>
+          </div>
+          <small class="reakt-help">Über die Lautstärke-Kurve ziehen → Startpunkt springt auf den lautesten Punkt (Startsignal). Endpunkt per „Ende = hier“ setzen — auch Bild-für-Bild mit ⏮ / ⏭.</small>
+        </div>
+      </div>
+
+      <div class="card" id="metricsCard">
+        <h2>3 · Metriken pro Bodenkontakt</h2>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr><th>#</th><th>t_c</th><th>Fv</th><th>Fh</th><th>R_f</th><th>J_h</th><th>P_max (W)</th></tr>
+            </thead>
+            <tbody id="metricsBody"></tbody>
+          </table>
+        </div>
+        <button id="exportBtn" class="ghost">⬇ Daten als JSON exportieren</button>
+      </div>
+
+      <div class="card" id="chartsCard">
+        <h2>4 · Diagramme</h2>
+        <div class="chart-box"><canvas id="chart1"></canvas></div>
+        <div class="chart-box"><canvas id="chart2"></canvas></div>
+        <div class="chart-box"><canvas id="chart3"></canvas></div>
+        <div class="chart-box"><canvas id="chart4"></canvas></div>
+        <div class="chart-box"><canvas id="chart5"></canvas></div>
+      </div>
+
+      <button id="newBtn" class="ghost wide">+ Neue Analyse</button>
+    </section>
+  </main>
+
+  <footer>
+    <small>Weyand 2010 · Morin 2011 · de Leva 1996 — Schätzwerte, keine Kraftmessplatte.</small>
+  </footer>
+
+  <!-- Bibliotheken (von CDN, per Service Worker offline gecacht) -->
+  <script src="https://cdn.jsdelivr.net/npm/fili@2.0.3/dist/fili.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="analysis.js"></script>
+  <script src="overlay.js"></script>
+  <script src="charts.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
